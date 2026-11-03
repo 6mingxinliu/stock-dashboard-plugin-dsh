@@ -1,0 +1,4 @@
+- insert:
+    - id: stock-dashboard
+      name: '@local/stock-dashboard'
+      config: {}
