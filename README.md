@@ -93,16 +93,30 @@ title/content/stock_list/subjects`。
 | **桥接**（唯一数据源） | 运行 `bridge/tdx_bridge.py`，把通达信 TdxAiData（tqs）包装为 `http://127.0.0.1:7350` 本地服务 |
 | **缓存**（断开兜底） | 桥接断开时展示最近一次成功数据（localStorage 快照），绝不展示模拟行情 |
 
-### 启用真实数据（TdxAiData）— 已配置
+### 启用真实数据（TdxAiData）
 
-本机已采用 **pip 包模式**：`pip install tdxaidata`（1.3.1，运行库位于
-`...\Python312\Lib\site-packages\tdxaidata\lib\`），`TdxAiData.ini` 的 `[Token]`
-已填入数据服务 Key，`bridge/TDXAIDATA_DIR.txt` 指向 site-packages 目录。
+桥接按 **`--dir` 参数 → `TDXAIDATA_DIR` 环境变量 → `TDXAIDATA_DIR.txt` → pip 安装模式**
+的顺序定位运行库；pip 模式下直接 `import tdxaidata` 并自动定位其 `lib/TdxAiData.ini`，
+路径文件失效（换机/移动）也会自动兜底。
 
-启动桥接（二选一）：
+**换电脑部署（三步）**：
 
 ```powershell
-python D:\project\stock-dashboard-plugin\bridge\tdx_bridge.py   # 命令行手动启动
+git clone https://github.com/6mingxinliu/stock-dashboard-plugin-dsh.git
+pip install -r stock-dashboard-plugin-dsh/bridge/requirements.txt   # tdxaidata + akshare
+python stock-dashboard-plugin-dsh/bridge/tdx_bridge.py              # 或在看板点「服务·开」自动拉起
+```
+
+然后打开看板 ⚙ 设置 → 粘贴数据服务 Key（写入 `TdxAiData.ini [Token]`，自动重启桥接）。
+运行库定位已全自动：**无需任何路径文件**（`TDXAIDATA_DIR.txt` 已移除）；老式目录部署
+（DLL 松散文件）仍可用 `--dir` / 环境变量指定。
+**依赖自动下载**：插件安装时（pnpm postinstall）与桥接每次启动时都会自动
+`pip install` 缺失的 `tdxaidata` / `akshare`，换机零手工。
+
+手动启动桥接（可选）：
+
+```powershell
+python bridge/tdx_bridge.py   # 命令行手动启动；平时由看板「服务·开」自动拉起
 ```
 
 或在看板顶栏保持「**服务·开**」：通过已注册的 `tdxbridge://` 协议处理器

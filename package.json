@@ -1,8 +1,11 @@
 {
   "name": "@local/stock-dashboard",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "postinstall": "python -m pip install -r bridge/requirements.txt --quiet --disable-pip-version-check || py -m pip install -r bridge/requirements.txt --quiet --disable-pip-version-check || echo [deps] deferred: bridge will self-install on startup"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

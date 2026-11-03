@@ -60,6 +60,29 @@ if sys.stderr is None:
 HERE = Path(__file__).resolve().parent
 
 # ---------------------------------------------------------------------------
+# 运行时依赖自愈：缺失的 Python 依赖在桥接启动时自动 pip 安装（换机零手工）
+# ---------------------------------------------------------------------------
+def ensure_runtime_deps():
+    deps = (("tdxaidata", "tdxaidata>=1.3"), ("akshare", "akshare>=1.20.22"))
+    missing = []
+    for mod, _pkg in deps:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(_pkg)
+    if not missing:
+        return
+    import subprocess
+    print("[依赖] 自动安装缺失的 Python 依赖: " + ", ".join(missing))
+    for pkg in missing:
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", pkg, "--quiet",
+                            "--disable-pip-version-check"], check=True, timeout=600)
+            print(f"[依赖] 已安装 {pkg}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[依赖] 安装 {pkg} 失败（可手动 pip install -r requirements.txt）: {exc}")
+
+# ---------------------------------------------------------------------------
 # tqs 接入（遵循 tdx-aidata Skill 的标准接入代码与强制检查流程）
 # ---------------------------------------------------------------------------
 INI_PATH = None  # 由 bootstrap_tqs 填充
@@ -67,24 +90,44 @@ _SERVER = None   # 由 main() 填充，供 /shutdown 优雅退出
 
 
 def bootstrap_tqs():
+    """定位 tdxaidata 运行库：--dir > TDXAIDATA_DIR 环境变量 > TDXAIDATA_DIR.txt >
+    pip 安装模式（import tdxaidata）。换电脑只需 pip install tdxaidata 并在看板设置 Token。"""
     global INI_PATH
-    dir_file = HERE / "TDXAIDATA_DIR.txt"
-    tdx_dir = Path(sys.argv[sys.argv.index("--dir") + 1]) if "--dir" in sys.argv else None
-    if tdx_dir is None:
+    tdx_dir = None
+    if "--dir" in sys.argv:
+        tdx_dir = Path(sys.argv[sys.argv.index("--dir") + 1])
+    else:
         import os
         env = os.environ.get("TDXAIDATA_DIR")
-        tdx_dir = Path(env) if env else (Path(dir_file.read_text(encoding="utf-8").strip()) if dir_file.is_file() else None)
-    if tdx_dir is None or not tdx_dir.is_dir():
-        raise SystemExit(
-            "未找到 TdxAiData 目录：请放置 TDXAIDATA_DIR.txt、设置环境变量 TDXAIDATA_DIR，"
-            "或使用 --dir 参数指定包含 tdxaidata.py / TdxAiData.dll / TdxAiData.ini 的目录。"
-        )
+        dir_file = HERE / "TDXAIDATA_DIR.txt"
+        cand_txt = Path(env) if env else (Path(dir_file.read_text(encoding="utf-8").strip()) if dir_file.is_file() else None)
+        if cand_txt and cand_txt.is_dir():
+            tdx_dir = cand_txt  # 路径文件失效（换机/移动）时忽略，走 pip 模式兜底
     ini_path = None
-    for cand in (tdx_dir / "TdxAiData.ini", tdx_dir / "lib" / "TdxAiData.ini",
-                 tdx_dir / "tdxaidata" / "lib" / "TdxAiData.ini"):
-        if cand.is_file():
-            ini_path = cand
-            break
+    if tdx_dir and tdx_dir.is_dir():
+        for cand in (tdx_dir / "TdxAiData.ini", tdx_dir / "lib" / "TdxAiData.ini",
+                     tdx_dir / "tdxaidata" / "lib" / "TdxAiData.ini"):
+            if cand.is_file():
+                ini_path = cand
+                break
+        if str(tdx_dir) not in sys.path:
+            sys.path.insert(0, str(tdx_dir))
+    else:
+        # pip 安装模式：tdxaidata 已在 site-packages，直接导入并定位其 lib 下的 INI
+        try:
+            import tdxaidata as _pkg
+            pkg_dir = Path(_pkg.__file__).resolve().parent
+            if str(pkg_dir.parent) not in sys.path:
+                sys.path.insert(0, str(pkg_dir.parent))
+            for cand in (pkg_dir / "lib" / "TdxAiData.ini", pkg_dir / "TdxAiData.ini"):
+                if cand.is_file():
+                    ini_path = cand
+                    break
+        except Exception:
+            raise SystemExit(
+                "未找到 TdxAiData 运行库：请先 `pip install tdxaidata`，"
+                "或放置 TDXAIDATA_DIR.txt / 设置 TDXAIDATA_DIR / 使用 --dir 指定目录。"
+            )
     INI_PATH = ini_path
     token = ""
     if ini_path:
@@ -93,13 +136,12 @@ def bootstrap_tqs():
         token = ini.get("Token", "token", fallback="").strip() if ini.has_section("Token") else ""
     if not token:
         print("[警告] 未在 TdxAiData.ini 找到 token，行情请求将认证失败；"
-              "请在 [Token] 节填写 token=（通达信商城 → 会员中心 → 积分和Key管理）")
-    if str(tdx_dir) not in sys.path:
-        sys.path.insert(0, str(tdx_dir))
+              "可在看板「设置」中配置 Token（写入 [Token] 节，通达信商城 → AI Key 管理）")
     from tdxaidata import tqs  # noqa: E402
     return tqs
 
 
+ensure_runtime_deps()  # 先于 bootstrap：缺失依赖自动 pip 安装
 TQS = bootstrap_tqs()
 TQS_LOCK = threading.Lock()
 HAVE_PANDAS = True
@@ -769,6 +811,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global _SERVER
+    ensure_runtime_deps()
     parser = argparse.ArgumentParser(description="TdxAiData HTTP bridge for the stock dashboard")
     parser.add_argument("--port", type=int, default=7350)
     parser.add_argument("--dir", type=str, default=None, help="TdxAiData 安装目录")

@@ -1,0 +1,5 @@
+# A股短线看板 · 本地数据桥接依赖
+#   tdxaidata : 通达信 TdxAiData 行情库（含 DLL；Token 在看板「设置」中配置）
+tdxaidata>=1.3
+#   akshare   : 热门板块/概念榜数据源（东财行业+概念接口）
+akshare>=1.20.22
